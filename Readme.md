@@ -20,6 +20,7 @@ Este dataset cuenta con 569 filas por 32 columnas las cuales son:
 
 Por último, este dataset no contiene missing values(Valores faltantes), estando perfectamente conformado para todas sus filas y columnas.
 Lo que se pretende conseguir con este dataset es lo siguiente:
+
 	-	Representación visual del mismo
 	-	Análisis de sus componentes principales (PCA)
 	-	Comparación de métodos de clasificación (Supervisados y no supervisados)
