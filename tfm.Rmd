@@ -1,0 +1,841 @@
+---
+title: "Trabajo Fin de Máster Uned. Big Data"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+  pdf_document:  default
+---
+
+
+#Introducción 
+En este fichero .RMD se realizará un análisis sobre un dataset que recopila información sobre el cáncer de mama. Concretamente, contiene información sobre diferentes mediciones relacionadas a los núcleos celulares que aparecen en las imágenes digitalizadas a partir de punciones (PAAF, Punción Aspiración Aguja Fina) en tejido mamario que presenta células cancerosas. Dicho Dataset se encuentra disponible en el siguiente ftp público: [**ftp.cs.wisc.edu**](ftp.cs.wisc.edu.) o pulsando [**aquí**](https://archive.ics.uci.edu/ml/datasets/Breast+Cancer+Wisconsin+(Diagnostic))
+
+Este dataset cuenta con 569 filas por 32 columnas las cuales son:
+
+1. Id de la muestra
+2. Diagnosis (M = Maligno, B = Benigno)
+3. Agrupados en MEAN (Media), SE(Error estandar) y WORST(Peor) de las siguentes caracteristicas:
+  + radius (mean of distances from center to points on the perimeter)
+	+ texture (standard deviation of gray-scale values)
+	+ perimeter
+	+ area
+	+ smoothness (local variation in radius lengths)
+	+ compactness (perimeter^2 / area - 1.0)
+	+ concavity (severity of concave portions of the contour)
+	+ concave points (number of concave portions of the contour)
+	+ symmetry 
+	+ fractal dimension ("coastline approximation" - 1)
+	
+Por último, este dataset no contiene missing values(Valores faltantes), estando perfectamente conformado para todas sus filas y columnas.
+
+Lo que se pretende conseguir con este dataset es lo siguiente:
+
+* Representación visual del mismo
+* Análisis de sus componentes principales (PCA)
+* Comparación de métodos de clasificación (Supervisados y no supervisados)
+
+
+# Primer bloque. Carga de datos y representación
+
+##Pre-requisitos
+Instalamos y cargamos las librerías que vamos a utilizar
+```{r message=FALSE}
+
+if(!is.element("GGally", installed.packages()[, 1]))
+  install.packages("GGally",repos = 'http://cran.us.r-project.org')
+
+if(!is.element("ggplot2", installed.packages()[, 1]))
+  install.packages("ggplot2",repos = 'http://cran.us.r-project.org')
+
+if(!is.element("class", installed.packages()[, 1]))
+  install.packages('class')
+
+if(!is.element("e1071", installed.packages()[, 1]))
+  install.packages("e1071",repos = 'http://cran.us.r-project.org')
+
+if(!is.element("caret", installed.packages()[, 1]))
+  install.packages("caret",repos = 'http://cran.us.r-project.org')
+
+if(!is.element("klaR", installed.packages()[, 1]))
+  install.packages("klaR",repos = 'http://cran.us.r-project.org')
+
+if(!is.element("gmodels", installed.packages()[, 1]))
+  install.packages("gmodels",repos = 'http://cran.us.r-project.org')
+
+if(!is.element("randomForest", installed.packages()[, 1]))
+  install.packages("randomForest",repos = 'http://cran.us.r-project.org')
+
+if(!is.element("factoextra", installed.packages()[, 1]))
+  install.packages("factoextra",repos = 'http://cran.us.r-project.org')
+
+if(!is.element("FactoMineR", installed.packages()[, 1]))
+  install.packages("FactoMineR",repos = 'http://cran.us.r-project.org')
+
+if(!is.element("gridExtra", installed.packages()[, 1]))
+  install.packages("gridExtra",repos = 'http://cran.us.r-project.org')
+
+suppressPackageStartupMessages(library(GGally))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(class))
+suppressPackageStartupMessages(library(e1071))
+suppressPackageStartupMessages(library(caret))
+suppressPackageStartupMessages(library(klaR))
+suppressPackageStartupMessages(library(gmodels))
+suppressPackageStartupMessages(library(randomForest))
+suppressPackageStartupMessages(library(factoextra))
+suppressPackageStartupMessages(library(FactoMineR))
+suppressPackageStartupMessages(library(gridExtra))
+
+```
+
+##Carga y adecuación de los datos
+###Obtención de los datos
+Cargamos el fichero que tenemos en la siguiente ruta. Ignoramos las cabeceras
+```{r }
+
+WDBC <- read.csv("datos/WDBC.dat", header=FALSE)
+
+```
+
+###Colocamos cabeceras
+Realizamos un pequeño proceso para colocar las cabeceras de cada columna. 
+```{r }
+
+tipos <- c("mean", "se", "worst")
+mediciones <- c("radius", "texture", "perimeter", "area", "smoothness","compactness",
+                "concavity", "concave_points", "symmetry","fractal_dimension")
+
+names <- c("id","analysis", paste0(rep(mediciones, 3), "_", rep(tipos, each=10)))
+colnames(WDBC) <- c(names)
+
+```
+
+###Preparamos los datos (ETL)
+Realizamos un pequeño proceso de limpieza y preparación de los datos. 
+En este caso **no existen ni missing values para los atributos ni valores nulos**, por lo que simplemente desechamos la columna id que no nos aporta información de utilidad y renombramos los valores B y M.
+
+```{r }
+
+WDBC <- WDBC[,-1]
+WDBC$analysis <- factor(WDBC$analysis, levels = c("B", "M"), labels = c("Benign", "Malignant"))
+attach(WDBC)
+
+```
+
+##Reprentación visual de los datos
+###Comenzamos mostrando estructura y primeros registros
+```{r }
+
+str(WDBC)
+head(WDBC)
+
+```
+
+###Gráfica sencilla de como está distribuido el dataset en cuanto a tipos de cáncer
+```{r }
+
+p <- ggplot(WDBC, aes(WDBC$analysis))
+p <- p + geom_bar(stat = "count", aes(fill = analysis))
+p <- p + xlab("Types") + ylab("Count")
+p <- p + ggtitle("Types of Cancer") 
+p <- p + geom_text(stat='count', aes(label=..count..), vjust=-0.5)
+p <- p + theme_minimal()
+p <- p + theme(legend.title = element_blank())
+show(p)
+
+```
+
+Se puede observar que la muestra está ligeramente desbalanceada en cuanto que existen 357 casos de cánceres benignos y 212 de malignos. 
+
+##Seguimos con la representación del dataset
+Dada la gran cantidad de variables que se tiene en el Dataset, representar todas al mismo tiempo resultaría complicado y confuso. Por ello se ha optado por representar las mismas agrupadas por **Mean (Media)**, **SE(Error estándar)** y **Worst (Peor o más largo)** para hacerlo más legible.
+
+###MEAN. Variables enfrentadas y correlación entre ellas
+```{r, message=FALSE,fig.width=14,fig.height=10}
+
+p <- ggpairs(
+     WDBC, 
+     aes(alpha = 0.65,color = WDBC$analysis), 
+     columns = 2:11,
+     legend = 1,
+     upper = list(continuous = wrap("cor", alpha = 1, size = 3, alignPercent=1)),
+     lower = list(continuous = wrap("points", alpha=0.35)),
+     title = "Cancer Features. Mean")
+p <- p + theme_minimal()
+p <- p + theme(legend.position = "bottom",legend.title = element_blank())
+
+print(p)
+
+```
+
+###SE. Variables enfrentadas y correlación entre ellas
+```{r, message=FALSE,fig.width=14,fig.height=10}
+
+p <- ggpairs(
+     WDBC, 
+     aes(alpha = 0.65,color = WDBC$analysis), 
+     columns = 12:21,
+     legend = 1,
+     upper = list(continuous = wrap("cor", alpha = 1, size = 3, alignPercent=1)),
+     lower = list(continuous = wrap("points", alpha=0.35)),
+     title = "Cancer Features. Standard Error")
+p <- p + theme_minimal()
+p <- p + theme(legend.position = "bottom",legend.title = element_blank())
+
+print(p)
+
+```
+
+###WORST. Variables enfrentadas y correlación entre ellas
+```{r, message=FALSE,fig.width=14,fig.height=10}
+
+p <- ggpairs(
+     WDBC, 
+     aes(alpha = 0.65,color = WDBC$analysis),  
+     columns = 22:31,
+     legend = 1,
+     upper = list(continuous = wrap("cor", alpha = 1, size = 3, alignPercent=1)),
+     lower = list(continuous = wrap("points", alpha=0.35)),
+     title = "Cancer Features. Worst o largest features")
+p <- p + theme_minimal()
+p <- p + theme(legend.position = "bottom",legend.title = element_blank())
+
+print(p)
+
+```
+
+##Realizamos otro tipo de representación un poco más clara sobre la correlación
+En este caso, se representa la correlación de las variables de manera alternativa a la anteriormente expuesta, siendo quizás una de las representaciones más eficaces con respecto a la correlación.
+
+###MEAN. Correlación de las variables
+```{r, message=FALSE, fig.width=12 }
+
+p <- ggcorr(
+     WDBC[,2:11],
+     geom = "tile", 
+     label = TRUE, 
+     label_round = 2,
+     hjust = 0.80,
+     vjust = 1,
+     nbreaks = 5,
+     drop = TRUE,
+     palette = "Accent",
+     layout.exp = 1,
+     legend.position = "bottom")
+
+p <- p + ggplot2::labs(title = "Cancer Correlations Features. Mean")
+print(p)
+  
+```
+
+###SE. Correlación de las variables
+```{r, message=FALSE, fig.width=12 }
+p <- ggcorr(
+     WDBC[,12:21],
+     geom = "tile", 
+     label = TRUE, 
+     label_round = 2,
+     hjust = 0.80,
+     vjust = 1,
+     nbreaks = 5,
+     drop = TRUE,
+     palette = "Accent",
+     layout.exp = 1,
+     legend.position = "bottom")
+
+p <- p + ggplot2::labs(title = "Cancer Correlations Features. SE")
+print(p)
+  
+```
+
+###WORST. Correlación de las variables
+```{r, message=FALSE, fig.width=12 }
+p <- ggcorr(
+     WDBC[,22:31],
+     geom = "tile", 
+     label = TRUE, 
+     label_round = 2,
+     hjust = 0.80,
+     vjust = 1,
+     nbreaks = 5,
+     drop = TRUE,
+     palette = "Accent",
+     layout.exp = 1,
+     legend.position = "bottom")
+
+p <- p + ggplot2::labs(title = "Cancer Correlations Features. Worst o largest features")
+print(p)
+  
+```
+
+# Segundo bloque. Preparación de los datos para ser analizados
+
+##Preparación de los datos
+Realizamos un proceso de normalización de los datos para asegurarnos que variables o características con métricas diferenciadas o con valores muy alejados en pico (valores máximos y mínimos muy alejados del grupo central que puede distorsionar la media), no influencien más de la cuenta en el análisis.  
+
+Asignamos un semilla para asegurarnos la reproducibilidad de los datos. 
+
+Por último, creamos un dataset de 'train' y otro de 'test' que utilizaremos más adelante.
+
+```{r }
+
+set.seed(1234)
+
+normalize <- function(x) {
+return ((x - min(x)) / (max(x) - min(x))) }
+
+wdbc_norm <- as.data.frame(lapply(WDBC[2:ncol(WDBC)], normalize))
+
+ind <- sample(2, nrow(WDBC), replace=TRUE, prob=c(0.67, 0.33))
+
+wdbc.train <- wdbc_norm[ind==1, 1:ncol(wdbc_norm)]
+wdbc.test <- wdbc_norm[ind==2, 1:ncol(wdbc_norm)]
+
+wdbc.trainLabels <- WDBC[ind==1, 1]
+wdbc.testLabels <- WDBC[ind==2, 1]
+
+```
+
+# Tercer bloque. Análisis PCA
+
+##Análisis de las componentes principales
+Realizamos un análisis de las componentes principales en su totalidad como dividas por grupos(MEAN, SE, WORST)
+```{r }
+all.pca <- prcomp(wdbc_norm, center = TRUE, scale = TRUE)
+mean.pca <- prcomp(wdbc_norm[,1:10], center = TRUE, scale = TRUE)
+se.pca <- prcomp(wdbc_norm[,11:20], center = TRUE, scale = TRUE)
+worst.pca <- prcomp(wdbc_norm[,21:30], center = TRUE, scale = TRUE)
+summary(all.pca)
+```
+
+Se puede observar que entre la PC1 y la PC5 el **'Cumulative proportion of Variance'(Suma de la proporción de la Varianza) es aproximadamente del 85%**, lo cual significa que con con estas 5 componentes se puede **explicar el 85% de los datos**. 
+
+
+##Representación de las componentes principales.
+###SCREEPLOT
+En esta gráfica 'screeplot', representamos **el porcentaje de variabilidad explicado por las componentes principales**. Esta grafica ordena las componentes principales de mayor a menor 'eigenvalores'(porción de la varianza total explicada por un componente)
+```{r, message=FALSE, fig.width=12 }
+
+p <- fviz_screeplot(all.pca,  barfill ="#72dbde", barcolor="#333333", addlabels = TRUE, ylim = c(0, 50), linecolor = "red",ncp = 30)
+p <- p + theme_minimal() 
+p <- p + labs(title = "Screeplot", x = "Principal Components")
+print(p)
+
+```
+
+###SCREEPLOT agrupadas por MEAN, SE y WORST
+Repetimos la representación anterior, pero agrupando por grupos (MEAN,SE,WORST) en la misma línea para poder observar las diferencias
+```{r, message=FALSE, fig.width=12 }
+
+p1 <- fviz_screeplot(mean.pca,  barfill ="#72dbde", barcolor="#333333", addlabels = TRUE, ylim = c(0, 60), linecolor = "red",ncp = 10)
+p1 <- p1 + theme_minimal() 
+p1 <- p1 + labs(title = "MEAN PCA", x = "Principal Components")
+
+p2 <- fviz_screeplot(se.pca,  barfill ="#f8b1ac", barcolor="#333333", addlabels = TRUE, ylim = c(0, 60), linecolor = "red",ncp = 10)
+p2 <- p2 + theme_minimal() 
+p2 <- p2 + labs(title = "SE PCA", x = "Principal Components")
+
+p3 <- fviz_screeplot(worst.pca, barfill ="#beaed4", barcolor="#333333", addlabels = TRUE, ylim = c(0, 60), linecolor = "red",ncp = 10)
+p3 <- p3 + theme_minimal() 
+p3 <- p3 + labs(title = "WORST PCA", x = "Principal Components")
+
+grid.arrange(p1,p2,p3,ncol=3)
+
+```
+
+###Contribución de las variables con respecto a la PC1,PC2 y PC3
+En esta gráfica lo que se muestra es **la contribución que realiza cada variable con respecto a cada una de las 3 componentes principales más importantes**. Si una variable sobrepasa la línea roja divisoria horizontal, se puede considerar que esa variable es **importante a la hora de contribuir a esa componente** 
+```{r, message=FALSE, fig.width=12 }
+
+p1 <- fviz_contrib(all.pca, fill="#72dbde", color="#333333", choice = "var", axes = 1, top = 10)
+p1 <- p1 + theme_minimal() 
+p1 <- p1 + theme(axis.text.x = element_text(angle=90))
+p1 <- p1 + labs(title = "Contribution of variables to PC1", x = "Principal Components")
+
+p2 <- fviz_contrib(all.pca, fill="#f8b1ac", color="#333333", choice = "var", axes = 2, top = 10)
+p2 <- p2 + theme_minimal() 
+p2 <- p2 + theme(axis.text.x = element_text(angle=90))
+p2 <- p2 + labs(title = "Contribution of variables to PC2", x = "Principal Components")
+
+p3 <- fviz_contrib(all.pca, fill="#beaed4", color="#333333", choice = "var", axes = 3, top = 10)
+p3 <- p3 + theme_minimal() 
+p3 <- p3 + theme(axis.text.x = element_text(angle=90))
+p3 <- p3 + labs(title = "Contribution of variables to PC3", x = "Principal Components")
+
+grid.arrange(p1,p2,p3,ncol=3)
+
+```
+
+ 
+# Cuarto bloque. Métodos de clasificación 
+
+##Algoritmos de Machine Learning enfocados a la clasificación 
+
+##Aprendizaje Supervisado
+En este apartado, realizaremos diferentes pruebas con diferentes **algoritmos de clasificación** como KNN, SVM, etc. Para ello utilizaremos los dataset de 'train (que se compone del )67% del total de Dataset original (380 filas)),  y 'test' (33% del total del Dataset original (189 filas)) que se crearon en el apartado anterior.
+
+###KNN(k-nearest neighbors)
+Comenzamos con KNN, y su configuración básica. K = 1
+```{r }
+
+knn_pred <- knn(train = wdbc.train, test = wdbc.test, cl = wdbc.trainLabels, k=1)
+CrossTable(x = wdbc.testLabels, y = knn_pred, prop.chisq=FALSE)
+
+```
+
+####Tuning KNN
+Utilizando la función **tune.knn**, intentaremos encontrar el mejor 'K' para el algoritmo KNN. De esta manera se intenta maximizar o mejorar la estimación (accuracy) que realiza el algoritmo.
+
+A la función **tune.knn** se le pueden variar diferentes parámetros. En este caso, probaremos con un k comprendido entre 1 y 100 y utilizaremos diferentes técnicas de 'sampling'(muestreo) las cuales se utilizarán para probar o estimar cuan bueno el predictor. 
+
+####Comencemos con el tuning
+####Sampling Bootstrap y k entre 1:100 
+En este caso, mostramos el k ofrecido por el tuning como una gráfica de los diferentes intentos realizados
+```{r }
+
+knn_tune <- tune.knn(wdbc.train, wdbc.trainLabels, k = 1:100, tunecontrol = tune.control(sampling = "boot")) 
+summary(knn_tune)
+plot(knn_tune)
+vectorK<-c(knn_tune$best.parameters$k)
+
+```
+
+####Ejecutamos y probamos con los datos de test para un k = `r knn_tune$best.parameters$k`
+```{r }
+
+knn_pred <- knn(train = wdbc.train, test = wdbc.test, cl = wdbc.trainLabels, k=knn_tune$best.parameters$k)
+CrossTable(x = wdbc.testLabels, y = knn_pred, prop.chisq=FALSE)
+
+```
+
+####Sampling Cross Validation y k entre 1:100 y validación cruzada de 10
+```{r }
+
+knn_tune <- tune.knn(wdbc.train, wdbc.trainLabels, k = 1:100, tunecontrol = tune.control(sampling = "cross"),cross = 10 )
+summary(knn_tune)
+plot(knn_tune)
+vectorK<-c(vectorK, knn_tune$best.parameters$k)
+
+```
+
+####Ejecutamos y probamos con los datos de test para un k = `r knn_tune$best.parameters$k`
+```{r }
+
+knn_pred <- knn(train = wdbc.train, test = wdbc.test, cl = wdbc.trainLabels, k=knn_tune$best.parameters$k)
+CrossTable(x = wdbc.testLabels, y = knn_pred, prop.chisq=FALSE)
+
+```
+
+####Sampling Fix y k entre 1:100 
+```{r }
+
+knn_tune <- tune.knn(wdbc.train, wdbc.trainLabels, k = 1:100, tunecontrol= tune.control(sampling = "fix"),fix = 10 )
+summary(knn_tune)
+plot(knn_tune)
+vectorK<-c(vectorK, knn_tune$best.parameters$k)
+
+```
+
+####Ejecutamos y probamos con los datos de test para un k = `r knn_tune$best.parameters$k`
+```{r }
+
+knn_pred <- knn(train = wdbc.train, test = wdbc.test, cl = wdbc.trainLabels, k=knn_tune$best.parameters$k)
+CrossTable(x = wdbc.testLabels, y = knn_pred, prop.chisq=FALSE)
+
+```
+
+###Conclusiones obtenidas para KNN. 
+
+La ejecución del 'tuning' anterior nos provee de diferentes valores para k los cuales son: `r vectorK`
+Se puede observar que para los diferentes K ofrecidos por el tuning con su diferentes métodos de sampling, **los resultados son prácticamente iguales**, variando a lo sumo en 1 o 2 aciertos con respecto a la predicción de cánceres benignos y prácticamente igual acierto en la predicción de cánceres malignos. 
+
+Por tanto, **el tunning ha mejorado ligeramente los resultados iniciales** que habíamos obtenidos con los valores por defecto.
+
+
+###SVM (Support Vector Machines)
+En este caso, directamente utilizaremos la función **tune.svm** para obtener los mejores parámetros de costo y gamma. Para esta función, tenemos posibilidad de probar con diferentes valores de gamma, costo y  kernel. 
+
+Probaremos con diferentes kernels ("lienar","Polynomial","radial" y "sigmoid") y con lo valores de costo(0.1, 1, 10, 100 y 1000) y gamma(0.037, 0.11, 0.33,1 y 3)
+
+#####Kernel linear
+```{r }
+
+svm_tune <- tune.svm(x=wdbc.train, y=wdbc.trainLabels, kernel="linear", cost=10^(-1:3), gamma=3^(-3:1))
+summary(svm_tune)
+plot(svm_tune)
+vectorSVM <- c("linear", svm_tune$best.parameters$cost, svm_tune$best.parameters$gamma)
+
+```
+
+####Ejecutamos y probamos con los datos de test para un costo = `r svm_tune$best.parameters$cost` y gamma = `r svm_tune$best.parameters$gamma`
+```{r }
+
+svm_pred <- svm(wdbc.train,wdbc.trainLabels, kernerl="linear", cost=svm_tune$best.parameters$cost,gamma = svm_tune$best.parameters$gamma)
+summary(svm_pred)
+
+pred <- predict(svm_pred, new=wdbc.test)
+CrossTable(x = wdbc.testLabels, y = pred,prop.chisq=FALSE)
+
+``` 
+
+####Kernel Polynomial
+```{r }
+
+svm_tune <- tune.svm(x=wdbc.train, y=wdbc.trainLabels, kernel="polynomial", cost=10^(-1:3), gamma=3^(-3:1))
+summary(svm_tune)
+plot(svm_tune)
+vectorSVM <- c(vectorSVM, c("polynomial", svm_tune$best.parameters$cost, svm_tune$best.parameters$gamma))
+
+```
+
+####Ejecutamos y probamos con los datos de test para un costo = `r svm_tune$best.parameters$cost` y gamma = `r svm_tune$best.parameters$gamma`
+```{r }
+
+svm_pred <- svm(wdbc.train,wdbc.trainLabels, kernerl="polynomial", cost=svm_tune$best.parameters$cost,gamma = svm_tune$best.parameters$gamma)
+summary(svm_pred)
+
+pred <- predict(svm_pred,new=wdbc.test)
+CrossTable(x = wdbc.testLabels, y = pred,prop.chisq=FALSE)
+
+```
+
+####Kernel Radial
+```{r }
+
+svm_tune <- tune.svm(x=wdbc.train, y=wdbc.trainLabels, kernel="radial", cost=10^(-1:3), gamma=3^(-3:1))
+summary(svm_tune)
+plot(svm_tune)
+vectorSVM <- c(vectorSVM, c("radial", svm_tune$best.parameters$cost, svm_tune$best.parameters$gamma))
+
+```
+
+####Ejecutamos y probamos con los datos de test para un costo = `r svm_tune$best.parameters$cost` y gamma = `r svm_tune$best.parameters$gamma`
+```{r }
+
+svm_pred <- svm(wdbc.train,wdbc.trainLabels, kernerl="radial", cost=100, gamma = svm_tune$best.parameters$gamma)
+
+summary(svm_pred)
+pred <- predict(svm_pred,new=wdbc.test)
+CrossTable(x = wdbc.testLabels, y = pred,prop.chisq=FALSE)
+
+```
+
+####Kernel Sigmoid
+```{r }
+
+svm_tune <- tune.svm(x=wdbc.train, y=wdbc.trainLabels, kernel="sigmoid", cost=10^(-1:3), gamma=3^(-3:1))
+summary(svm_tune)
+plot(svm_tune)
+vectorSVM <- c(vectorSVM, c("sigmoid", svm_tune$best.parameters$cost, svm_tune$best.parameters$gamma))
+
+
+```
+
+####Ejecutamos y probamos con los datos de test para un costo = `r svm_tune$best.parameters$cost` y gamma = `r svm_tune$best.parameters$gamma`
+```{r }
+
+svm_pred <- svm(wdbc.train,wdbc.trainLabels, kernerl="sigmoid", cost=svm_tune$best.parameters$cost,gamma = svm_tune$best.parameters$gamma)
+summary(svm_pred)
+
+pred <- predict(svm_pred,new=wdbc.test)
+CrossTable(x = wdbc.testLabels, y = pred,prop.chisq=FALSE)
+
+```
+
+
+###Conclusiones obtenidas para SVM 
+
+La ejecución del 'tuning' anterior nos provee de diferentes valores para costo y gamma para cada kernel, los cuales son:
+
+  Kernel         |    Costo         |    Gamma
+---------------- | ---------------- | ----------------
+`r vectorSVM[1]` | `r vectorSVM[2]` | `r vectorSVM[3]`
+`r vectorSVM[4]` | `r vectorSVM[5]` | `r vectorSVM[6]`
+`r vectorSVM[7]` | `r vectorSVM[8]` | `r vectorSVM[9]`
+`r vectorSVM[10]`| `r vectorSVM[11]`| `r vectorSVM[12]`
+
+
+Se puede observar que para los svm con kernel "linear" o "sigmoid" son los que mejores resultados tiene a la hora de predecir correctamente cánceres benignos. El svm con kernel "polymonial" es el que mejor acierto tiene con respecto a la predicción de cánceres malignos. Aún así, los resultados están **bastante cercanos en cuanto a predicción de cánceres benignos o malignos**, no existiendo grandes diferencias. 
+
+**Los valores de los costos y gamma pueden variar entre diferentes ejecuciones, variando los resultados finales**
+
+###Naive Bayes
+En este caso, al igual que en el caso del KNN, utilizaremos diferentes técnicas o métodos de sampling, pero en este caso, no modificaremos ningún parámetro adicional. Simplemente mediremos cuan ajustado está el predictor de cuatro maneras diferentes. 
+
+####Sampling Cross validation
+```{r, warning= FALSE, message=FALSE}
+
+nb_pred = train(wdbc.train,wdbc.trainLabels,method = 'nb', trControl=trainControl(method='cv',number=10))
+nb_pred
+
+pred <- predict(nb_pred$finalModel, wdbc.test)
+CrossTable(x = wdbc.testLabels, y = pred$class, prop.chisq=FALSE)
+
+```
+
+####Sampling Cross validation with repeat
+```{r, warning= FALSE, message=FALSE}
+
+nb_pred = train(wdbc.train,wdbc.trainLabels,method = 'nb', trControl=trainControl(method='repeatedcv',number=10, repeats = 3))
+nb_pred
+
+pred <- predict(nb_pred$finalModel, wdbc.test)
+CrossTable(x = wdbc.testLabels, y = pred$class, prop.chisq=FALSE)
+
+```
+
+####Sampling Bootstrap 
+```{r, warning= FALSE, message=FALSE}
+
+nb_pred = train(wdbc.train, wdbc.trainLabels, method = 'nb', trControl=trainControl(method='boot',number=100))
+nb_pred
+
+pred <- predict(nb_pred$finalModel, wdbc.test)
+CrossTable(x = wdbc.testLabels, y = pred$class, prop.chisq=FALSE)
+
+```
+
+####Sampling Leave One Out Cross Validation
+```{r, warning= FALSE, message=FALSE}
+
+nb_pred = train(wdbc.train,wdbc.trainLabels,method = 'nb', trControl=trainControl(method='LOOCV'))
+nb_pred
+
+pred <- predict(nb_pred$finalModel, wdbc.test)
+CrossTable(x = wdbc.testLabels, y = pred$class, prop.chisq=FALSE)
+
+```
+
+###Conclusiones obtenidas para Naibe Bayes
+
+Las cuatro pruebas realizadas han dado prácticamente los mismos resultados, lo cual por otro lado era lo esperado ya que en cada ejecución lo único que modificamos es la forma de medir **la precisión del modelo o predictor**. Aún así, se puede observar, que el **accuracy y kappa** están muy cerca de 1, lo cual indica lo bueno que es el predictor en sí, para cada una de las pruebas. Dicho valores se han confirmado al ver que los resultados obtenidos con los datos de 'test', son buenos y acordes con lo esperado dada la precisión obtenida con los datos de 'train'.
+
+
+###Random Forest
+Para Radon forest, ejecutaremos el predictor con un número de árboles igual a 10000 y sin restricción en número de nodos. Posteriormente, ejecutaremos la función **tuneRF** para intentar mejorar la configuración del clasificador
+
+```{r, warning= FALSE, message=FALSE}
+
+rf_pred <- randomForest(x = wdbc.train, y = wdbc.trainLabels,ntree=10000,proximity=TRUE)
+rf_pred
+
+pred <- predict(rf_pred, newdata=wdbc.test)
+CrossTable(x = wdbc.testLabels, y = pred, prop.chisq=FALSE)
+
+```
+
+####Intentamos mejorar los resultados con tuneRF. 
+Intentamos obtener una mejor configuración para el clasificador, obteniendo un valor de 'mtry'(conjunto de variables a tener en cuanta de manera aleatoria en cada división de árboles) y 'ntree'  (número de árboles) ajustado.
+
+```{r, warning= FALSE, message=FALSE}
+
+tune.rf <- tuneRF(wdbc.train,wdbc.trainLabels, stepFactor=0.5,doBest = TRUE, ntreeTry = 10001,improve = 0.01)
+
+rf_pred <- randomForest(x = wdbc.train, y = wdbc.trainLabels,ntree=tune.rf$ntree,proximity=TRUE,mtry = tune.rf$mtry)
+rf_pred
+
+pred <- predict(rf_pred, newdata=wdbc.test) 
+CrossTable(x = wdbc.testLabels, y = pred, prop.chisq=FALSE)
+
+```
+
+###Conclusiones obtenidas para Random Forest
+Los datos obtenidos para Random Forest, son bastante buenos con su configuración inicial. Al utilizar la función **tuneRF** para encontrar el mejor número de árboles y mtry, nos encontramos que mejora ligeramente los resultados con los datos de 'train', pero empeora también ligeramente los resultados con los datos de 'test'. los valores que nos ha indicado la función son:
+
+
+     ntrees: `r tune.rf$ntree` 
+       mtry: `r tune.rf$mtry`  
+
+
+En conclusión, los resultados obtenidos en ambos casos son bastante satisfactorios.
+
+ 
+##Aprendizaje no supervisado
+###k-means
+En este caso, probaremos con diferentes variantes del algoritmo K-Means, y con 'iter.max'(iteraciones máximas) de 1000 y 'nstart'(número de conjuntos aleatorios) de 100. Además, en este caso hay que modificar la semilla en cada caso para que los centroides elegidos varíen.
+
+####K-Means. Hartigan-Wong
+```{r, warning= FALSE, message=FALSE}
+
+set.seed(1)
+result <- kmeans(x = wdbc_norm, centers = 2,iter.max = 1000,algorithm = "Hartigan-Wong", nstart = 100)
+CrossTable(x = WDBC$analysis, y = result$cluster, prop.chisq=FALSE)
+
+```
+
+####K-Means. Lloyd
+```{r, warning= FALSE, message=FALSE}
+
+set.seed(12)
+result <- kmeans(x = wdbc_norm,centers = 2,iter.max = 1000,algorithm = "Lloyd",nstart = 100)
+CrossTable(x = WDBC$analysis, y = result$cluster, prop.chisq=FALSE)
+
+```
+
+####K-Means. Forgy
+```{r, warning= FALSE, message=FALSE}
+
+set.seed(123)
+result <- kmeans(x = wdbc_norm,centers = 2,iter.max = 1000,algorithm = "Forgy",nstart = 100)
+CrossTable(x = WDBC$analysis, y = result$cluster, prop.chisq=FALSE)
+
+```
+####K-Means. MacQueen
+```{r, warning= FALSE, message=FALSE}
+
+set.seed(1234)
+result <- kmeans(x = wdbc_norm,centers = 2,iter.max = 1000,algorithm = "MacQueen",nstart = 100)
+CrossTable(x = WDBC$analysis, y = result$cluster, prop.chisq=FALSE)
+
+```
+
+###Conclusiones obtenidas para K-means
+Para este clasificador, el uso de las diferentes variantes del algoritmo K-Means no ha producido ningún cambio. En sus cuatro variantes ha obtenido los mismos resultados a pesar de haber forzado semillas diferentes en cada caso. Esto puede ser debido al número de cluster y tamaño del dataset entre otros factores.
+
+
+###Algoritmo jerárquico aglomerativo 
+Por último, probaremos con las diferentes variantes del algoritmo jerárquico aglomerativo, cortando en 2 grupos el árbol resultante
+
+####Método Ward.D
+```{r, warning= FALSE, message=FALSE}
+
+result = hclust(dist(wdbc_norm), method = "ward.D")
+result_cut <- cutree (result, 2)
+CrossTable(x = WDBC$analysis, y = result_cut, prop.chisq=FALSE)
+
+```
+
+####Método Ward.D2
+```{r, warning= FALSE, message=FALSE}
+
+result = hclust(dist(wdbc_norm), method = "ward.D2")
+result_cut <- cutree (result, 2)
+CrossTable(x = WDBC$analysis, y = result_cut, prop.chisq=FALSE)
+
+```
+
+####Método Single
+```{r, warning= FALSE, message=FALSE}
+
+result = hclust(dist(wdbc_norm), method = "single")
+result_cut <- cutree (result, 2)
+CrossTable(x = WDBC$analysis, y = result_cut, prop.chisq=FALSE)
+
+```
+
+####Método Complete
+```{r, warning= FALSE, message=FALSE}
+
+result = hclust(dist(wdbc_norm), method = "complete")
+result_cut <- cutree (result, 2)
+CrossTable(x = WDBC$analysis, y = result_cut, prop.chisq=FALSE)
+
+```
+
+####Método Average
+```{r, warning= FALSE, message=FALSE}
+
+result = hclust(dist(wdbc_norm), method = "average")
+result_cut <- cutree (result, 2)
+CrossTable(x = WDBC$analysis, y = result_cut, prop.chisq=FALSE)
+
+```
+
+####Método Mcquitty
+```{r, warning= FALSE, message=FALSE}
+
+result = hclust(dist(wdbc_norm), method = "mcquitty")
+result_cut <- cutree (result, 2)
+CrossTable(x = WDBC$analysis, y = result_cut, prop.chisq=FALSE)
+
+```
+
+####Método Median
+```{r, warning= FALSE, message=FALSE}
+
+result = hclust(dist(wdbc_norm), method = "median")
+result_cut <- cutree (result, 2)
+CrossTable(x = WDBC$analysis, y = result_cut, prop.chisq=FALSE)
+
+```
+
+####Método Centroid
+```{r, warning= FALSE, message=FALSE}
+
+result = hclust(dist(wdbc_norm), method = "centroid")
+result_cut <- cutree (result, 2)
+CrossTable(x = WDBC$analysis, y = result_cut, prop.chisq=FALSE)
+
+```
+
+###Conclusiones obtenidas para Jeráquico Aglomerativo
+De los diferentes métodos expuestos, los únicos métodos que dan resultados aceptables son "Ward.D" y "Ward.D2". El resto de métodos prácticamente agrupaba casi la totalidad de las muestran en un mismo grupo, lo cual no es de utilidad en absoluto para este análisis. 
+
+
+#Conclusiones finales sobre la clasificación
+
+En cuanto a la clasificación, tanto los algoritmos supervisados como los no supervisados, han dado buenos resultado. Concretamente, los datos fueron los siguientes para cada uno de los algoritmos (tomando los mejores resultados obtenidos): 
+
+**IMPORTANTE:** Recordar que los resultados pueden variar entre ejecución y ejecución y por tanto los datos finales sufrir variaciones. En todo caso, dichas variaciones **no son muy significativas en la mayoría de los casos.**
+
+
+Para los algoritmos de **aprendizaje supervisado** ejecutados, y con un data.frame de 189 entradas:
+
+
+  Tipo           |       KNN        |       SVM        | Naive Bayes | Random Forest
+---------------- | ---------------- | ---------------- | ----------- | -------------
+Aciertos Benignos|    109/97,3%     |     108/96,4%    |  105/93,8%	 |   108/96,4%
+Errores  Benignos|      3/2,7%      |       4/3,6%	   |    7/6,2%	 |     4/3,6%
+Aciertos Malignos|     71/92,2%     |      69/89,6%    |   72/93,5%  |    74/96,1%
+Errores  Malignos|      6/2,7%      |       8/1,04%    |    5/6,5%	 |     3/3,9%
+
+
+
+De la tabla anterior se observa que la probabilidad de acierto en la predicción de cánceres benignos es muy alta (por encima del 93%) en todos los algoritmos, destacando **KNN**, con una cierto del 97,3%. En cuanto a los cánceres malignos, la precisión disminuye ligeramente, aunque sigue siendo aceptablemente alta (por encima del 89%), destacando en este caso **Random Forest**, con una precisión del 96,1%. 
+
+En general, el algoritmo de aprendizaje supervisado que mejores resultados ha dado, ha sido **Random Forest**, al mantenerse por encima del 96% de acierto tanto en la predicción de cánceres malignos como benignos. 
+
+
+
+Para los algoritmos de **aprendizaje no supervisado** ejecutados, y con un data.frame de 569 entradas:
+
+  Tipo           |       K-means    |  Jerárquico Aglomerativo
+---------------- | ---------------- | ----------------
+Aciertos Benignos|     348/97,5%    |     347/97,2%
+Errores  Benignos|       9/2,5%     |      10/2,8%	 
+Aciertos Malignos|     180/84,9%    |     179/84,4%
+Errores  Malignos|     32/15,1%     |      33/15,6%
+
+
+De la tabla anterior, se observa que la probabilidad de acierto en la predicción de cánceres benignos es muy alta (por encima del 97%), destacando por muy poco (apenas unas décimas) **K-means**. En cuanto a los malignos, el acierto desciende estando en torno al 84% en ambos casos, destacando nuevamente por muy poco **K-means**. 
+
+En general, los resultados obtenidos son aceptablemente buenos, sobre todo en la predicción de cánceres benignos. En los malignos, el acierto desciende, aunque mantiene un nivel de acierto alto. Destaca en ambos casos **K-means**.
+
+
+En base a los datos anteriores y comparándolos a nivel de porcentaje, parece que existen una relativa ventaja al usar los **algoritmos supervisados** sobre los no supervisados (en referencia a los algoritmos utilizados en este estudio) en la predicción de cánceres malignos. 
+Específicamente, si comparamos los resultados en porcentaje de Random Forest y K-Means, observamos como en la predicción de cánceres benignos destaca ligeramente K-Means (mejoría de 1,1%). En el caso de los malignos, destaca Random Forest (mejoría de 11,2%). 
+
+En conclusión, **Random Forest** es el algoritmo que da los mejores resultados en general, y por tanto las mejores porcentajes de predicción de cánceres de ambos tipos. 
+
+
+
+#Enlaces de interés
+**Dataset con la información de cáncer de mama**
+
+[ftp.cs.wisc.edu/math-prog/cpo-dataset/machine-learn/cancer/WDBC/WDBC.dat](ftp.cs.wisc.edu/math-prog/cpo-dataset/machine-learn/cancer/WDBC/WDBC.dat)
+
+**Información relevante sobre el Dataset**
+
+[https://archive.ics.uci.edu/ml/datasets/Breast+Cancer+Wisconsin+(Diagnostic)](https://archive.ics.uci.edu/ml/datasets/Breast+Cancer+Wisconsin+(Diagnostic))
+
+
+#Finalizamos 
+```{r}
+
+sessionInfo()
+
+```
+
+
+
